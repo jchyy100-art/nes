@@ -118,25 +118,26 @@
 
         .canvas-container {
             position: relative;
-            width: 768px;
-            height: 720px;
-            max-width: 90vw;
-            max-height: 70vh;
-            aspect-ratio: 256 / 240;
+            width: min(800px, 94vw);
+            aspect-ratio: 4 / 3;
+            max-height: 64vh;
             background: #000;
             overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
+            border-radius: 4px;
         }
 
         #nesCanvas {
             width: 100%;
             height: 100%;
+            object-fit: fill;
             image-rendering: pixelated;
             image-rendering: crisp-edges;
             display: block;
         }
+
 
         /* CRT Scanline Overlay */
         .crt-overlay {
