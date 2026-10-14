@@ -134,7 +134,9 @@ def create_emulator_instance(rom_bytes: bytes):
     bus.ppu = ppu
 
     apu = APU(bus)
+    apu.audio_enabled = False
     bus.apu = apu
+
 
     cpu = CPU(bus)
     bus.cpu = cpu
@@ -230,16 +232,18 @@ async def websocket_endpoint(websocket: WebSocket):
     async def stream_frames():
         target_fps = 60
         frame_time = 1.0 / target_fps
-        jpeg_quality = 68
+        jpeg_quality = 65
+        frame_skip = 2
 
         try:
             while not stop_event.is_set():
                 start = time.perf_counter()
 
                 current_bus = bus
-                current_bus.ppu.frame_ready = False
-                while not current_bus.ppu.frame_ready:
-                    current_bus.clock()
+                for _ in range(frame_skip):
+                    current_bus.ppu.frame_ready = False
+                    while not current_bus.ppu.frame_ready:
+                        current_bus.clock()
 
                 img = Image.fromarray(current_bus.ppu.framebuffer)
                 buf = io.BytesIO()
@@ -249,11 +253,12 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_bytes(frame_bytes)
 
                 elapsed = time.perf_counter() - start
-                sleep_time = frame_time - elapsed
+                sleep_time = (frame_time * frame_skip) - elapsed
                 if sleep_time > 0.001:
                     await asyncio.sleep(sleep_time)
                 else:
                     await asyncio.sleep(0.001)
+
 
         except WebSocketDisconnect:
             pass

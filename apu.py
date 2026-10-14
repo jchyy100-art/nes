@@ -294,6 +294,8 @@ class APU:
         self._buffer_limit  = self.SAMPLE_RATE // 30   # 2 frames de audio
 
         self.irq_pending = False
+        self.audio_enabled = True
+
 
     # ─── Escritura de registros ───
 
@@ -421,18 +423,20 @@ class APU:
 
         self._clock_frame_counter()
 
-        # Downsampling: generar una muestra de audio
-        self._sample_accum += self._mix()
-        self._sample_count += 1
+        # Downsampling: generar una muestra de audio si está habilitado
+        if self.audio_enabled:
+            self._sample_accum += self._mix()
+            self._sample_count += 1
 
-        # Cada X ciclos de CPU generamos una muestra de 44100 Hz
-        cycles_per_sample = self.CPU_FREQ / self.SAMPLE_RATE
-        if self._clock_count % int(cycles_per_sample) == 0:
-            if self._sample_count > 0:
-                sample = self._sample_accum / self._sample_count
-                self._sample_buffer.append(sample)
-                self._sample_accum = 0.0
-                self._sample_count = 0
+            # Cada X ciclos de CPU generamos una muestra de 44100 Hz
+            cycles_per_sample = self.CPU_FREQ / self.SAMPLE_RATE
+            if self._clock_count % int(cycles_per_sample) == 0:
+                if self._sample_count > 0:
+                    sample = self._sample_accum / self._sample_count
+                    self._sample_buffer.append(sample)
+                    self._sample_accum = 0.0
+                    self._sample_count = 0
+
 
         self._clock_count += 1
 

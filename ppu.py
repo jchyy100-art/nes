@@ -81,6 +81,8 @@ class PPU:
         self._mask   = 0x00   # $2001 PPUMASK
         self._status = 0x00   # $2002 PPUSTATUS
         self._oam_addr = 0    # $2003 OAMADDR
+        self._mapper_scanline = None
+
 
         # Registros de scroll/dirección (Loopy)
         self._v = 0x0000   # VRAM address actual
@@ -267,9 +269,11 @@ class PPU:
 
     def _get_color(self, palette_idx: int, pixel: int) -> tuple:
         """Devuelve el color RGB de la paleta del NES."""
-        addr = 0x3F00 + (palette_idx << 2) + pixel
-        idx  = self.ppu_read(addr) & 0x3F
-        return NES_PALETTE[idx]
+        addr = (palette_idx << 2) + pixel
+        if (addr & 3) == 0:
+            addr = 0
+        return NES_PALETTE[self.palette[addr]]
+
 
     def _load_bg_shifters(self):
         self._bg_shifter_pattern_lo = (
@@ -415,8 +419,9 @@ class PPU:
 
             # ── Notificar al mapper de la scanline (para MMC3 IRQ) ──
             if cy == 260 and 0 <= sl < 240 and (self._mask & 0x18):
-                if self.bus.cart and hasattr(self.bus.cart.mapper, 'scanline'):
-                    self.bus.cart.mapper.scanline()
+                if self._mapper_scanline is not None:
+                    self._mapper_scanline()
+
 
         # ─── VBlank (scanline 241) ───
         if sl == 241 and cy == 1:

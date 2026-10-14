@@ -131,6 +131,9 @@ class Cartridge:
         prg_banks = len(self.prg_rom) // (16 * 1024)
         chr_banks = len(self.chr_rom) // (8 * 1024) if self.chr_rom else 0
         self.mapper = cls(prg_banks, chr_banks)
+        if not hasattr(self.mapper, 'mirror'):
+            self.mapper.mirror = self.mirror
+
 
     # ─── Acceso desde la CPU (PRG) ───
 
@@ -189,6 +192,5 @@ class Cartridge:
     @property
     def mirror_mode(self) -> int:
         """Algunos mappers pueden cambiar el mirror dinámicamente."""
-        if hasattr(self.mapper, 'mirror'):
-            return self.mapper.mirror
-        return self.mirror
+        return self.mapper.mirror
+

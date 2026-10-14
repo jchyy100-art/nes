@@ -47,6 +47,10 @@ class Bus:
         self._dma_active  = False
         self._dma_dummy   = True   # espera un ciclo antes de transferir
 
+        # Mapper IRQ callback en caché
+        self._mapper_irq = None
+
+
     # ═══════════════════════════════════════════════════════════════════════
     #                        LECTURA (CPU → BUS)
     # ═══════════════════════════════════════════════════════════════════════
@@ -148,9 +152,9 @@ class Bus:
                 self.cpu.irq()
 
             # ── Verificar IRQ del Mapper (MMC3, etc.) ──
-            if self.cart and self.cart.mapper and hasattr(self.cart.mapper, 'irq_pending'):
-                if self.cart.mapper.irq_pending():
-                    self.cpu.irq()
+            if self._mapper_irq is not None and self._mapper_irq():
+                self.cpu.irq()
+
 
         # ─── NMI de la PPU → CPU ───
         if p.nmi_occurred:
@@ -180,9 +184,13 @@ class Bus:
 
     def reset(self):
         """Resetea todos los componentes del sistema."""
+        self._mapper_irq = getattr(self.cart.mapper, 'irq_pending', None) if (self.cart and self.cart.mapper) else None
+        if self.ppu:
+            self.ppu._mapper_scanline = getattr(self.cart.mapper, 'scanline', None) if (self.cart and self.cart.mapper) else None
         self.cpu.reset()
         self.ppu.scanline = 0
         self.ppu.cycle    = 0
         self._system_clock = 0
         self._dma_active   = False
         self._dma_dummy    = True
+
