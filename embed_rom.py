@@ -32,32 +32,54 @@ def create_minimal_test_rom() -> bytes:
     # SEI ($78), CLD ($D8), LDX #$FF ($A2 $FF), TXS ($9A)
     # Escribe paleta en PPU $3F00
     code = [
-        0x78,             # SEI
-        0xD8,             # CLD
-        0xA2, 0xFF,       # LDX #$FF
-        0x9A,             # TXS
-        # Esperar 1 frame de PPU
-        0x2C, 0x02, 0x20, # BIT $2002
-        0x10, 0xFB,       # BPL -5
-        # Configurar dirección PPU $3F00 (paleta)
-        0x8D, 0x06, 0x20, # STA $2006 (A=cualquier valor)
-        0xA9, 0x3F,       # LDA #$3F
-        0x8D, 0x06, 0x20, # STA $2006
-        0xA9, 0x00,       # LDA #$00
-        0x8D, 0x06, 0x20, # STA $2006
-        # Escribir 32 colores de paleta (un degradé de colores NES)
-        0xA2, 0x00,       # LDX #$00
-        # loop paleta:
-        0x8A,             # TXA
-        0x8D, 0x07, 0x20, # STA $2007 (PPUDATA)
-        0xE8,             # INX
-        0xE0, 0x20,       # CPX #$20
-        0xD0, 0xF8,       # BNE loop
-        # Habilitar renderizado en PPUMASK ($2001 = $1E)
-        0xA9, 0x1E,       # LDA #$1E
-        0x8D, 0x01, 0x20, # STA $2001
-        # Loop infinito
-        0x4C, 0x22, 0x80  # JMP $8022
+        # ── Init CPU ──
+        0x78,             # $8000: SEI
+        0xD8,             # $8001: CLD
+        0xA2, 0xFF,       # $8002: LDX #$FF
+        0x9A,             # $8004: TXS
+        # ── Wait VBlank ──
+        0x2C, 0x02, 0x20, # $8005: BIT $2002  (also resets w toggle)
+        0x10, 0xFB,       # $8008: BPL $8005
+        # ── Write palette at $3F00 ──
+        # BIT $2002 already reset the w toggle to 0
+        0xA9, 0x3F,       # $800A: LDA #$3F
+        0x8D, 0x06, 0x20, # $800C: STA $2006  (high byte = $3F, w -> 1)
+        0xA9, 0x00,       # $800F: LDA #$00
+        0x8D, 0x06, 0x20, # $8011: STA $2006  (low byte = $00, w -> 0) => addr=$3F00
+        # ── Write 32 palette colors ──
+        0xA2, 0x00,       # $8014: LDX #$00
+        # loop_palette:
+        0x8A,             # $8016: TXA
+        0x8D, 0x07, 0x20, # $8017: STA $2007  (PPUDATA)
+        0xE8,             # $801A: INX
+        0xE0, 0x20,       # $801B: CPX #$20
+        0xD0, 0xF8,       # $801D: BNE $8016 (loop_palette)
+        # ── Fill nametable 0 ($2000) with tile pattern ──
+        0xA9, 0x20,       # $801F: LDA #$20
+        0x8D, 0x06, 0x20, # $8021: STA $2006
+        0xA9, 0x00,       # $8024: LDA #$00
+        0x8D, 0x06, 0x20, # $8026: STA $2006  => addr=$2000
+        0xA2, 0x00,       # $8029: LDX #$00
+        0xA0, 0x04,       # $802B: LDY #$04   (4 pages = 1024 bytes)
+        # loop_nt:
+        0x8A,             # $802D: TXA
+        0x8D, 0x07, 0x20, # $802E: STA $2007
+        0xE8,             # $8031: INX
+        0xD0, 0xFA,       # $8032: BNE $802D
+        0x88,             # $8034: DEY
+        0xD0, 0xF7,       # $8035: BNE $802D
+        # ── Enable NMI + use BG pattern table 1 ──
+        0xA9, 0x90,       # $8037: LDA #$90   (NMI on, BG table = $1000)
+        0x8D, 0x00, 0x20, # $8039: STA $2000  (PPUCTRL)
+        # ── Enable rendering ──
+        0xA9, 0x1E,       # $803C: LDA #$1E
+        0x8D, 0x01, 0x20, # $803E: STA $2001  (PPUMASK)
+        # ── Reset scroll ──
+        0xA9, 0x00,       # $8041: LDA #$00
+        0x8D, 0x05, 0x20, # $8043: STA $2005  (PPUSCROLL X=0)
+        0x8D, 0x05, 0x20, # $8046: STA $2005  (PPUSCROLL Y=0)
+        # ── Infinite loop ──
+        0x4C, 0x49, 0x80, # $8049: JMP $8049
     ]
 
     for i, b in enumerate(code):

@@ -129,40 +129,35 @@ class Bus:
 
     def clock(self):
         """
-        Avanza el sistema un ciclo de reloj maestro.
-
-        Relaciones de velocidad:
-            CPU  : 1 ciclo cada 3 ciclos maestros
-            PPU  : 1 ciclo cada ciclo maestro
-            APU  : 1 ciclo cada ciclo de CPU
+        Avanza el sistema un ciclo de CPU (y 3 ciclos de PPU correspondientes).
         """
-        # ─── PPU (corre a 3× la CPU) ───
-        self.ppu.clock()
+        p = self.ppu
+        p.clock()
+        p.clock()
+        p.clock()
 
-        # ─── CPU (corre a 1/3 de la PPU) ───
-        if self._system_clock % 3 == 0:
-            if self._dma_active:
-                self._handle_dma()
-            else:
-                self.cpu.clock()
-                self.apu.clock()
+        if self._dma_active:
+            self._handle_dma()
+        else:
+            self.cpu.clock()
+            self.apu.clock()
 
-                # ── Verificar IRQ del APU ──
-                if self.apu.irq_pending:
-                    self.apu.irq_pending = False
+            # ── Verificar IRQ del APU ──
+            if self.apu.irq_pending:
+                self.apu.irq_pending = False
+                self.cpu.irq()
+
+            # ── Verificar IRQ del Mapper (MMC3, etc.) ──
+            if self.cart and self.cart.mapper and hasattr(self.cart.mapper, 'irq_pending'):
+                if self.cart.mapper.irq_pending():
                     self.cpu.irq()
 
-                # ── Verificar IRQ del Mapper (MMC3, etc.) ──
-                if hasattr(self.cart.mapper, 'irq_pending'):
-                    if self.cart.mapper.irq_pending():
-                        self.cpu.irq()
-
         # ─── NMI de la PPU → CPU ───
-        if self.ppu.nmi_occurred:
-            self.ppu.nmi_occurred = False
+        if p.nmi_occurred:
+            p.nmi_occurred = False
             self.cpu.nmi()
 
-        self._system_clock += 1
+        self._system_clock += 3
 
     def _handle_dma(self):
         """Maneja la transferencia DMA de 256 bytes a la OAM."""

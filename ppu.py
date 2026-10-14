@@ -413,6 +413,11 @@ class PPU:
             if cy == 340:
                 self._fetch_sprites()
 
+            # ── Notificar al mapper de la scanline (para MMC3 IRQ) ──
+            if cy == 260 and 0 <= sl < 240 and (self._mask & 0x18):
+                if self.bus.cart and hasattr(self.bus.cart.mapper, 'scanline'):
+                    self.bus.cart.mapper.scanline()
+
         # ─── VBlank (scanline 241) ───
         if sl == 241 and cy == 1:
             self._status |= 0x80   # VBlank flag
