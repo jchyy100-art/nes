@@ -1,10 +1,11 @@
 # requirements.txt — Dependencias para despliegue Web / Cloud (Railway, Render)
 # Nota: La version web no requiere librerias GUI como pygame.
 # Nota: uvicorn sin [standard] para compatibilidad con PyPy (evita uvloop/httptools)
+# Nota: pydantic v1 (Python puro) para compatibilidad con PyPy 3.10 (pydantic-core/v2 requiere PyPy 3.11+)
 
 numpy>=1.24.0
 pillow>=10.0.0
-fastapi>=0.100.0
+fastapi>=0.100.0,<0.110.0
 uvicorn>=0.23.0
 websockets>=11.0
-pydantic>=2.0.0
+pydantic>=1.10.0,<2.0.0
