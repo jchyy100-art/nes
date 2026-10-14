@@ -16,14 +16,17 @@ import os
 import sys
 import io
 import time
+import json
+import base64
 import asyncio
-from typing import Set
+from typing import Set, Optional
 from PIL import Image
 import numpy as np
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 # ─── Importar componentes del emulador ───
 from memory import Bus
@@ -43,6 +46,14 @@ except Exception as e:
     DEFAULT_ROM_NAME = "NES Demo"
     DEFAULT_ROM_BYTES = None
 
+CURRENT_ROM_NAME = DEFAULT_ROM_NAME
+CURRENT_ROM_BYTES = DEFAULT_ROM_BYTES
+
+
+class RomUploadModel(BaseModel):
+    name: str
+    data: str   # Base64 encoded .nes file
+
 
 app = FastAPI(title="NES Cloud Emulator")
 
@@ -60,7 +71,24 @@ async def get_index():
 @app.get("/health")
 async def health_check():
     """Ruta de comprobación de salud para Railway / Render."""
-    return {"status": "ok", "game": DEFAULT_ROM_NAME}
+    return {"status": "ok", "game": CURRENT_ROM_NAME or DEFAULT_ROM_NAME}
+
+
+@app.post("/api/upload_rom")
+async def upload_rom_api(payload: RomUploadModel):
+    """Permite subir una ROM en Base64 desde el navegador para fijarla en el servidor."""
+    global CURRENT_ROM_NAME, CURRENT_ROM_BYTES
+    try:
+        raw_bytes = base64.b64decode(payload.data)
+        if len(raw_bytes) < 16 or raw_bytes[:4] != b"NES\x1a":
+            return {"ok": False, "error": "El archivo no es una ROM NES válida (formato iNES requerido)."}
+        
+        CURRENT_ROM_NAME = payload.name
+        CURRENT_ROM_BYTES = raw_bytes
+        print(f"[SERVER] Nueva ROM fijada en la nube: {CURRENT_ROM_NAME} ({len(raw_bytes)} bytes)")
+        return {"ok": True, "name": CURRENT_ROM_NAME, "size": len(raw_bytes)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 # Servir archivos estáticos adicionales si los hubiera
@@ -102,17 +130,20 @@ async def websocket_endpoint(websocket: WebSocket):
     print("[WS] Jugador conectado desde el navegador.")
 
     # Verificar que haya una ROM disponible
-    if not DEFAULT_ROM_BYTES:
+    active_rom_bytes = CURRENT_ROM_BYTES or DEFAULT_ROM_BYTES
+    active_rom_name = CURRENT_ROM_NAME or DEFAULT_ROM_NAME
+
+    if not active_rom_bytes:
         await websocket.send_json({
             "type": "error",
-            "message": "No hay ninguna ROM incrustada configurada."
+            "message": "No hay ninguna ROM configurada en el servidor."
         })
         await websocket.close()
         return
 
     # Iniciar instancia del emulador
     try:
-        bus = create_emulator_instance(DEFAULT_ROM_BYTES)
+        bus = create_emulator_instance(active_rom_bytes)
     except Exception as e:
         print(f"[ERROR] Error al crear instancia de emulador: {e}")
         await websocket.send_json({"type": "error", "message": str(e)})
@@ -122,13 +153,14 @@ async def websocket_endpoint(websocket: WebSocket):
     # Notificar nombre de la ROM
     await websocket.send_json({
         "type": "info",
-        "title": DEFAULT_ROM_NAME
+        "title": active_rom_name
     })
 
     stop_event = asyncio.Event()
 
-    # ─── Tarea de recepción de input ───
+    # ─── Tarea de recepción de input y comandos ───
     async def receive_inputs():
+        nonlocal bus
         try:
             while not stop_event.is_set():
                 message = await websocket.receive()
@@ -137,9 +169,27 @@ async def websocket_endpoint(websocket: WebSocket):
                     btn_mask = message["bytes"][0]
                     bus.ctrl1.set_button_mask(btn_mask)
                 elif "text" in message and message["text"]:
-                    # Mensajes de control/ping
-                    if '"ping"' in message["text"]:
-                        await websocket.send_json({"type": "pong"})
+                    try:
+                        data = json.loads(message["text"])
+                        msg_type = data.get("type")
+                        if msg_type == "ping":
+                            await websocket.send_json({"type": "pong"})
+                        elif msg_type == "load_rom":
+                            rom_b64 = data.get("data")
+                            rom_name = data.get("name", "Juego")
+                            if rom_b64:
+                                raw_bytes = base64.b64decode(rom_b64)
+                                if len(raw_bytes) >= 16 and raw_bytes[:4] == b"NES\x1a":
+                                    global CURRENT_ROM_NAME, CURRENT_ROM_BYTES
+                                    CURRENT_ROM_NAME = rom_name
+                                    CURRENT_ROM_BYTES = raw_bytes
+                                    bus = create_emulator_instance(raw_bytes)
+                                    await websocket.send_json({"type": "info", "title": rom_name})
+                                    print(f"[WS] ROM cambiada en vivo con éxito a: {rom_name}")
+                                else:
+                                    await websocket.send_json({"type": "error", "message": "El archivo no es una ROM NES válida."})
+                    except Exception as err:
+                        print(f"[WS] Error en mensaje: {err}")
         except WebSocketDisconnect:
             pass
         except Exception:
@@ -151,33 +201,29 @@ async def websocket_endpoint(websocket: WebSocket):
     async def stream_frames():
         target_fps = 60
         frame_time = 1.0 / target_fps
-        jpeg_quality = 70   # Óptimo equilibrio calidad/latencia
+        jpeg_quality = 68
 
         try:
             while not stop_event.is_set():
                 start = time.perf_counter()
 
-                # Ejecutar hasta completar un frame completo de la PPU
-                bus.ppu.frame_ready = False
-                while not bus.ppu.frame_ready:
-                    bus.clock()
+                current_bus = bus
+                current_bus.ppu.frame_ready = False
+                while not current_bus.ppu.frame_ready:
+                    current_bus.clock()
 
-                # Comprimir framebuffer (240, 256, 3) a JPEG en memoria
-                img = Image.fromarray(bus.ppu.framebuffer)
+                img = Image.fromarray(current_bus.ppu.framebuffer)
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=jpeg_quality, optimize=False)
                 frame_bytes = buf.getvalue()
 
-                # Enviar frame binario al navegador
                 await websocket.send_bytes(frame_bytes)
 
-                # Control de velocidad de fotogramas (60 FPS estables)
                 elapsed = time.perf_counter() - start
                 sleep_time = frame_time - elapsed
                 if sleep_time > 0.001:
                     await asyncio.sleep(sleep_time)
                 else:
-                    # Ceder brevemente el loop de eventos
                     await asyncio.sleep(0.001)
 
         except WebSocketDisconnect:

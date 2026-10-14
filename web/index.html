@@ -180,6 +180,45 @@
             box-shadow: 0 6px 20px var(--accent-glow);
         }
 
+        .btn-rom {
+            background: #252b40;
+            border: 1px solid #48527a;
+            color: #ffca28;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn-rom:hover {
+            background: #353d5c;
+            border-color: #ffca28;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: #222638;
+            color: #ffca28;
+            border: 2px solid #3d4566;
+            font-size: 14px;
+            font-weight: 700;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: #2e3550;
+            border-color: #ffca28;
+            transform: scale(1.04);
+        }
+
         /* ─── Controls & Info Deck ─── */
         .dashboard {
             width: 100%;
@@ -382,6 +421,7 @@
             <h1 id="gameTitle">Cargando juego...</h1>
         </div>
         <div class="status-indicators">
+            <button class="btn-rom" id="btnHeaderRom"><span>📂</span> Cargar ROM (.nes)</button>
             <div class="badge">
                 <span class="dot" id="serverDot"></span>
                 <span id="serverStatus">Desconectado</span>
@@ -403,10 +443,13 @@
 
             <div class="overlay-message" id="overlayMessage">
                 <h2 style="font-size: 24px; color: #fff;">🎮 Emulador NES en la Nube</h2>
-                <p style="color: var(--text-dim); max-width: 400px; font-size: 14px;">
-                    Juego incrustado listo en el servidor. Conecta tu control Xbox por Bluetooth o juega con teclado.
+                <p style="color: var(--text-dim); max-width: 460px; font-size: 14px;">
+                    Juega con la ROM incrustada o carga tu propio juego <code>.nes</code> directamente desde tu PC.
                 </p>
-                <button class="btn-start" id="btnConnect">INICIAR PARTIDA</button>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 8px;">
+                    <button class="btn-start" id="btnConnect">INICIAR PARTIDA</button>
+                    <button class="btn-secondary" id="btnOverlayRom">📂 CARGAR ROM DESDE PC</button>
+                </div>
             </div>
         </div>
     </div>
@@ -466,11 +509,15 @@
             </div>
 
             <div class="actions">
+                <button class="btn-action" id="btnActionRom">📂 Cambiar ROM (.nes)</button>
                 <button class="btn-action" id="btnFullscreen">Pantalla Completa</button>
                 <button class="btn-action" id="btnToggleCRT">Efecto CRT: ON</button>
             </div>
         </div>
     </div>
+
+    <!-- Hidden file input for uploading .nes files from PC -->
+    <input type="file" id="romFileInput" accept=".nes" style="display: none;">
 
     <script>
         // ─── Bitmask Buttons NES ───
@@ -803,6 +850,64 @@
             } else {
                 document.exitFullscreen();
             }
+        });
+
+        // ─── Cargar ROMs desde la PC ───
+        const romFileInput = document.getElementById("romFileInput");
+        const btnHeaderRom = document.getElementById("btnHeaderRom");
+        const btnOverlayRom = document.getElementById("btnOverlayRom");
+        const btnActionRom = document.getElementById("btnActionRom");
+
+        function openRomPicker() {
+            romFileInput.value = "";
+            romFileInput.click();
+        }
+
+        [btnHeaderRom, btnOverlayRom, btnActionRom].forEach(btn => {
+            if (btn) btn.addEventListener("click", openRomPicker);
+        });
+
+        romFileInput.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            if (!file.name.toLowerCase().endsWith(".nes")) {
+                alert("Por favor selecciona un archivo con extensión .nes");
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                const base64Data = ev.target.result.split(",")[1];
+                gameTitle.textContent = "Cargando " + file.name + "...";
+
+                // 1. Guardar la ROM en el servidor en la nube
+                try {
+                    await fetch("/api/upload_rom", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ name: file.name, data: base64Data })
+                    });
+                } catch (err) {
+                    console.warn("Aviso guardando en API:", err);
+                }
+
+                // 2. Cambiar cartucho en caliente si el WebSocket está activo
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        type: "load_rom",
+                        name: file.name,
+                        data: base64Data
+                    }));
+                } else {
+                    connectWebSocket();
+                }
+
+                overlayMessage.style.display = "none";
+                gameTitle.textContent = file.name;
+            };
+
+            reader.readAsDataURL(file);
         });
     </script>
 </body>
