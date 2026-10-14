@@ -2,7 +2,9 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>NES Cloud — Emulador en el Navegador</title>
     <script src="/static/jsnes.min.js"></script>
     <style>
@@ -25,6 +27,13 @@
             padding: 0;
             user-select: none;
             -webkit-user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        html, body {
+            touch-action: manipulation;
+            -webkit-text-size-adjust: 100%;
+            overscroll-behavior: none;
         }
 
         body {
@@ -328,22 +337,39 @@
             display: none;
             width: 100%;
             max-width: 600px;
-            margin-top: 16px;
+            margin-top: 14px;
             justify-content: space-between;
             align-items: center;
+            padding: 0 10px;
             touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
 
-        @media (pointer: coarse) {
+        .system-touch {
+            display: none;
+            gap: 16px;
+            justify-content: center;
+            width: 100%;
+            margin-top: 12px;
+            touch-action: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        @media (pointer: coarse), (max-width: 850px) {
             .mobile-controls {
+                display: flex;
+            }
+            .system-touch {
                 display: flex;
             }
         }
 
         .dpad-grid {
             display: grid;
-            grid-template-columns: repeat(3, 44px);
-            grid-template-rows: repeat(3, 44px);
+            grid-template-columns: repeat(3, 48px);
+            grid-template-rows: repeat(3, 48px);
             gap: 4px;
         }
 
@@ -351,27 +377,36 @@
             background: #222638;
             border: 2px solid #3a405a;
             color: #fff;
-            border-radius: 8px;
-            font-weight: 700;
+            border-radius: 10px;
+            font-weight: 900;
+            font-size: 16px;
             display: flex;
             align-items: center;
             justify-content: center;
             touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            cursor: pointer;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+            -webkit-tap-highlight-color: transparent;
         }
 
         .btn-touch:active, .btn-touch.active {
             background: var(--accent);
             border-color: #ff5252;
+            transform: scale(0.96);
         }
 
         .action-btns {
             display: flex;
             gap: 16px;
+            align-items: center;
         }
 
         .btn-round {
-            width: 54px;
-            height: 54px;
+            width: 58px;
+            height: 58px;
             border-radius: 50%;
             background: #b71c1c;
             border: 2px solid #e53935;
@@ -380,43 +415,90 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 16px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            font-size: 18px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.6);
             touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
         }
 
         .btn-round:active, .btn-round.active {
             background: #e53935;
-            transform: scale(0.95);
-        }
-
-        .system-touch {
-            display: flex;
-            gap: 10px;
-            justify-content: center;
-            width: 100%;
-            margin-top: 8px;
+            transform: scale(0.92);
         }
 
         .btn-pill {
             background: #2b2e40;
             border: 1px solid #444a66;
-            color: #bbb;
-            font-size: 10px;
+            color: #ccc;
+            font-size: 11px;
             font-weight: 700;
-            padding: 6px 14px;
-            border-radius: 12px;
+            padding: 8px 18px;
+            border-radius: 16px;
             letter-spacing: 1px;
             touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            -webkit-tap-highlight-color: transparent;
         }
 
         .btn-pill:active, .btn-pill.active {
             background: #555c80;
             color: #fff;
+            transform: scale(0.95);
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 8px 6px;
+            }
+            header {
+                flex-direction: column;
+                align-items: center;
+                gap: 8px;
+            }
+            .brand {
+                justify-content: center;
+            }
+            .status-indicators {
+                flex-wrap: wrap;
+                justify-content: center;
+                gap: 6px;
+            }
+            .tv-wrapper {
+                padding: 6px;
+                border-width: 2px;
+                width: 100%;
+            }
+            .canvas-container {
+                width: 100%;
+                max-height: 52vh;
+            }
+            .btn-start {
+                padding: 14px 24px;
+                font-size: 16px;
+                width: 100%;
+            }
+            .btn-secondary {
+                padding: 12px 18px;
+                font-size: 13px;
+                width: 100%;
+            }
+            .overlay-message {
+                padding: 14px;
+            }
         }
     </style>
-</head>
 <body>
+
+    <!-- Banner de Diagnóstico / Error para Móviles -->
+    <div id="mobileErrorBox" style="display:none; background:#d32f2f; color:#fff; padding:10px 14px; border-radius:8px; font-size:12px; margin-bottom:12px; max-width:900px; width:100%; word-break:break-word; border:1px solid #ff7961;"></div>
 
     <header>
         <div class="brand">
@@ -530,8 +612,8 @@
         </div>
     </div>
 
-    <!-- Hidden file input for uploading .nes files from PC -->
-    <input type="file" id="romFileInput" accept=".nes" style="display: none;">
+    <!-- Hidden file input for uploading .nes files (iOS Files, Android, PC) -->
+    <input type="file" id="romFileInput" accept=".nes, application/octet-stream, *" style="display: none;">
 
     <script>
         // ─── Constantes de Botones NES ───
@@ -550,11 +632,33 @@
         let touchMask = 0x00;
         const keysPressed = new Set();
 
+        // ─── Captura de errores para diagnóstico en iPhone y móviles ───
+        window.addEventListener("error", (e) => {
+            console.error("Window error:", e);
+            const box = document.getElementById("mobileErrorBox");
+            if (box) {
+                box.style.display = "block";
+                box.textContent = "⚠️ Error: " + (e.message || e);
+            }
+        });
+        window.addEventListener("unhandledrejection", (e) => {
+            console.error("Unhandled promise rejection:", e);
+            const box = document.getElementById("mobileErrorBox");
+            if (box) {
+                box.style.display = "block";
+                box.textContent = "⚠️ Error: " + (e.reason?.message || e.reason || e);
+            }
+        });
+
         // Canvas y contexto
         const canvas = document.getElementById("nesCanvas");
         const ctx = canvas.getContext("2d", { alpha: false });
         const webImageData = ctx.createImageData(256, 240);
-        const webBuf32 = new Uint32Array(webImageData.data.buffer);
+
+        // Buffer independiente y seguro para TypedArrays en Safari/iOS y todos los navegadores
+        const nesPixelBuf = new ArrayBuffer(256 * 240 * 4);
+        const nesPixelBuf8 = new Uint8ClampedArray(nesPixelBuf);
+        const nesPixelBuf32 = new Uint32Array(nesPixelBuf);
 
         // Elementos DOM
         const serverDot = document.getElementById("serverDot");
@@ -571,6 +675,29 @@
         const btnFullscreen = document.getElementById("btnFullscreen");
         const btnModeWeb = document.getElementById("btnModeWeb");
         const btnModeCloud = document.getElementById("btnModeCloud");
+
+        // Sincronizar título inicial con el servidor
+        fetch("/health")
+            .then(r => r.json())
+            .then(data => {
+                if (data && data.game) {
+                    currentRomName = data.game;
+                    gameTitle.textContent = currentRomName;
+                }
+            })
+            .catch(() => {});
+
+        // Conversor veloz de ArrayBuffer a Binary String (evita bloqueos en móviles)
+        function arrayBufferToBinary(arrayBuf) {
+            const bytes = new Uint8Array(arrayBuf);
+            const chunkSize = 8192;
+            let binary = "";
+            for (let i = 0; i < bytes.length; i += chunkSize) {
+                const sub = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+                binary += String.fromCharCode.apply(null, sub);
+            }
+            return binary;
+        }
 
         // Motores de emulación: "web" (60 FPS client) o "cloud" (Python WebSocket)
         let currentEngine = "web";
@@ -597,51 +724,81 @@
 
         function initAudio() {
             if (audioCtx) {
-                if (audioCtx.state === "suspended") audioCtx.resume();
+                if (audioCtx.state === "suspended") {
+                    audioCtx.resume().catch(() => {});
+                }
                 return;
             }
-            const AudioContext = window.AudioContext || window.webkitAudioContext;
-            if (!AudioContext) return;
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContextClass) return;
             try {
-                audioCtx = new AudioContext({ sampleRate: 44100 });
-                scriptNode = audioCtx.createScriptProcessor(2048, 0, 2);
-                scriptNode.onaudioprocess = (e) => {
-                    const outL = e.outputBuffer.getChannelData(0);
-                    const outR = e.outputBuffer.getChannelData(1);
-                    for (let i = 0; i < outL.length; i++) {
-                        if (audioReadIdx !== audioWriteIdx) {
-                            outL[i] = audioBufL[audioReadIdx];
-                            outR[i] = audioBufR[audioReadIdx];
-                            audioReadIdx = (audioReadIdx + 1) % AUDIO_BUF_SIZE;
-                        } else {
-                            outL[i] = 0;
-                            outR[i] = 0;
+                // Dejar que el navegador elija la tasa de muestreo nativa (ej. 48000 Hz en iPhone)
+                audioCtx = new AudioContextClass();
+                if (audioCtx.state === "suspended") {
+                    audioCtx.resume().catch(() => {});
+                }
+                // En iOS Safari, createScriptProcessor exige al menos 1 canal de entrada (numberOfInputChannels >= 1)
+                if (audioCtx.createScriptProcessor) {
+                    scriptNode = audioCtx.createScriptProcessor(2048, 1, 2);
+                    scriptNode.onaudioprocess = (e) => {
+                        const outL = e.outputBuffer.getChannelData(0);
+                        const outR = e.outputBuffer.getChannelData(1);
+                        for (let i = 0; i < outL.length; i++) {
+                            if (audioReadIdx !== audioWriteIdx) {
+                                outL[i] = audioBufL[audioReadIdx];
+                                outR[i] = audioBufR[audioReadIdx];
+                                audioReadIdx = (audioReadIdx + 1) % AUDIO_BUF_SIZE;
+                            } else {
+                                outL[i] = 0;
+                                outR[i] = 0;
+                            }
                         }
-                    }
-                };
-                scriptNode.connect(audioCtx.destination);
+                    };
+                    scriptNode.connect(audioCtx.destination);
+                }
             } catch (e) {
                 console.warn("AudioContext init error:", e);
             }
         }
 
         function handleAudioSample(left, right) {
+            const nextWrite = (audioWriteIdx + 1) % AUDIO_BUF_SIZE;
+            if (nextWrite === audioReadIdx) {
+                audioReadIdx = (audioReadIdx + 1) % AUDIO_BUF_SIZE;
+            }
             audioBufL[audioWriteIdx] = left;
             audioBufR[audioWriteIdx] = right;
-            audioWriteIdx = (audioWriteIdx + 1) % AUDIO_BUF_SIZE;
+            audioWriteIdx = nextWrite;
         }
+
+        // Desbloquear audio en el primer toque de pantalla (iOS Safari)
+        function unlockAudio() {
+            initAudio();
+            if (audioCtx && audioCtx.state === "suspended") {
+                audioCtx.resume().catch(() => {});
+            }
+        }
+        ["touchstart", "touchend", "click"].forEach(evt => {
+            window.addEventListener(evt, unlockAudio, { passive: true, once: true });
+        });
 
         // ─── Inicializar Motor jsnes (Web 60 FPS) ───
         function initWebNes() {
-            if (webNes || typeof jsnes === "undefined") return;
+            if (webNes) return;
+            if (typeof jsnes === "undefined") {
+                throw new Error("El motor jsnes.min.js no se ha cargado. Verifica tu conexión.");
+            }
+            const sampleRate = (audioCtx && audioCtx.sampleRate) ? audioCtx.sampleRate : 48000;
             webNes = new jsnes.NES({
                 onFrame: (buffer) => {
                     for (let i = 0; i < 61440; i++) {
-                        webBuf32[i] = 0xFF000000 | buffer[i];
+                        nesPixelBuf32[i] = 0xFF000000 | buffer[i];
                     }
+                    webImageData.data.set(nesPixelBuf8);
                     ctx.putImageData(webImageData, 0, 0);
                 },
-                onAudioSample: handleAudioSample
+                onAudioSample: handleAudioSample,
+                sampleRate: sampleRate
             });
         }
 
@@ -706,29 +863,33 @@
         // ─── Arrancar Juego en Modo Web 60 FPS ───
         async function startWebGame(romBinaryData) {
             initAudio();
-            initWebNes();
+            try {
+                initWebNes();
+            } catch (e) {
+                alert(e.message);
+                btnConnect.textContent = "INICIAR PARTIDA";
+                btnConnect.disabled = false;
+                return;
+            }
 
             if (romBinaryData) {
                 currentRomData = romBinaryData;
             } else if (!currentRomData) {
                 btnConnect.textContent = "DESCARGANDO ROM...";
+                btnConnect.disabled = true;
                 serverStatus.textContent = "Descargando ROM...";
                 try {
                     const resp = await fetch("/api/download_current_rom");
                     if (resp.ok) {
                         const arrayBuf = await resp.arrayBuffer();
-                        let binary = "";
-                        const bytes = new Uint8Array(arrayBuf);
-                        for (let i = 0; i < bytes.byteLength; i++) {
-                            binary += String.fromCharCode(bytes[i]);
-                        }
-                        currentRomData = binary;
+                        currentRomData = arrayBufferToBinary(arrayBuf);
                     } else {
-                        throw new Error("No se pudo obtener ROM del servidor");
+                        throw new Error("No se pudo obtener ROM del servidor (Status " + resp.status + ")");
                     }
                 } catch (err) {
                     alert("Carga tu ROM con el botón '📂 Cargar ROM (.nes)' para jugar a 60 FPS.");
                     btnConnect.textContent = "INICIAR PARTIDA";
+                    btnConnect.disabled = false;
                     return;
                 }
             }
@@ -993,21 +1154,39 @@
             };
             const flag = getFlag(btnName);
 
-            const press = (ev) => {
+            // Soporte táctil optimizado para iOS (multi-touch sin retardos ni zoom)
+            el.addEventListener("touchstart", (ev) => {
                 ev.preventDefault();
+                unlockAudio();
                 touchMask |= flag;
                 el.classList.add("active");
-            };
-            const release = (ev) => {
+            }, { passive: false });
+
+            el.addEventListener("touchend", (ev) => {
                 ev.preventDefault();
                 touchMask &= ~flag;
                 el.classList.remove("active");
-            };
+            }, { passive: false });
 
-            el.addEventListener("pointerdown", press);
-            el.addEventListener("pointerup", release);
-            el.addEventListener("pointercancel", release);
-            el.addEventListener("pointerleave", release);
+            el.addEventListener("touchcancel", (ev) => {
+                ev.preventDefault();
+                touchMask &= ~flag;
+                el.classList.remove("active");
+            }, { passive: false });
+
+            // Soporte para mouse / touchpad en PC
+            el.addEventListener("mousedown", (ev) => {
+                touchMask |= flag;
+                el.classList.add("active");
+            });
+            el.addEventListener("mouseup", (ev) => {
+                touchMask &= ~flag;
+                el.classList.remove("active");
+            });
+            el.addEventListener("mouseleave", (ev) => {
+                touchMask &= ~flag;
+                el.classList.remove("active");
+            });
         });
 
         // ─── Input Sync Loop para Modo Nube (WebSocket) ───
@@ -1080,11 +1259,7 @@
             const reader = new FileReader();
             reader.onload = async (ev) => {
                 const arrayBuffer = ev.target.result;
-                let binary = "";
-                const bytes = new Uint8Array(arrayBuffer);
-                for (let i = 0; i < bytes.byteLength; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                }
+                const binary = arrayBufferToBinary(arrayBuffer);
                 currentRomData = binary;
 
                 // Subir en segundo plano al servidor para sincronizar
