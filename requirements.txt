@@ -1,0 +1,14 @@
+# requirements.txt — Dependencias del emulador NES (Local + Servidor Web en la Nube)
+#
+# Para ejecutar en local:
+#     python main.py juego.nes
+#
+# Para ejecutar en servidor web / navegador:
+#     python server.py
+
+pygame>=2.5.0
+numpy>=1.24.0
+pillow>=10.0.0
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+websockets>=11.0

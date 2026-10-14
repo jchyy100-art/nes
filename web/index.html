@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NES Cloud — Emulador en el Navegador</title>
+    <style>
+        :root {
+            --bg-color: #0f1118;
+            --panel-bg: #191b26;
+            --accent: #e52521;
+            --accent-glow: rgba(229, 37, 33, 0.4);
+            --text-main: #f0f3f8;
+            --text-dim: #8b92a5;
+            --card-border: #282c3f;
+            --screen-border: #333852;
+            --green: #2ecc71;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            padding: 16px;
+            overflow-x: hidden;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            max-width: 900px;
+            margin-bottom: 14px;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .nes-badge {
+            background: linear-gradient(135deg, #e52521, #b31210);
+            color: #fff;
+            font-weight: 900;
+            font-size: 14px;
+            letter-spacing: 2px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            box-shadow: 0 0 12px var(--accent-glow);
+        }
+
+        h1 {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .status-indicators {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: var(--panel-bg);
+            border: 1px solid var(--card-border);
+            color: var(--text-dim);
+            font-size: 12px;
+        }
+
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #888;
+        }
+
+        .dot.connected {
+            background-color: var(--green);
+            box-shadow: 0 0 8px var(--green);
+        }
+
+        /* ─── TV CRT Screen Container ─── */
+        .tv-wrapper {
+            position: relative;
+            background: #000;
+            border-radius: 12px;
+            padding: 12px;
+            border: 3px solid var(--screen-border);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.8), 0 0 30px rgba(229,37,33,0.1);
+            max-width: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .canvas-container {
+            position: relative;
+            width: 768px;
+            height: 720px;
+            max-width: 90vw;
+            max-height: 70vh;
+            aspect-ratio: 256 / 240;
+            background: #000;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #nesCanvas {
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+            display: block;
+        }
+
+        /* CRT Scanline Overlay */
+        .crt-overlay {
+            pointer-events: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%),
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.03), rgba(0, 255, 0, 0.01), rgba(0, 0, 255, 0.03));
+            background-size: 100% 3px, 6px 100%;
+            z-index: 5;
+            opacity: 0.6;
+        }
+
+        .overlay-message {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(10, 12, 18, 0.85);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10;
+            text-align: center;
+            padding: 20px;
+            gap: 14px;
+        }
+
+        .btn-start {
+            background: linear-gradient(135deg, var(--accent), #b31210);
+            color: #fff;
+            border: none;
+            font-size: 16px;
+            font-weight: 700;
+            padding: 12px 28px;
+            border-radius: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 15px var(--accent-glow);
+            transition: all 0.2s;
+        }
+
+        .btn-start:hover {
+            transform: scale(1.04);
+            box-shadow: 0 6px 20px var(--accent-glow);
+        }
+
+        /* ─── Controls & Info Deck ─── */
+        .dashboard {
+            width: 100%;
+            max-width: 900px;
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 10px;
+            padding: 14px 18px;
+        }
+
+        .card-title {
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .key-map {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 8px;
+            font-size: 13px;
+        }
+
+        .key-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: rgba(0,0,0,0.25);
+            padding: 6px 10px;
+            border-radius: 6px;
+        }
+
+        .key-badge {
+            background: #252a3d;
+            border: 1px solid #3c435f;
+            color: #ffca28;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+            font-family: monospace;
+        }
+
+        .controller-status {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .gamepad-visual {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            border: 1px solid var(--card-border);
+        }
+
+        .actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .btn-action {
+            flex: 1;
+            background: #252a3d;
+            border: 1px solid #3a415e;
+            color: var(--text-main);
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            text-align: center;
+            transition: background 0.2s;
+        }
+
+        .btn-action:hover {
+            background: #333a54;
+        }
+
+        /* ─── Touch Controls (Mobile) ─── */
+        .mobile-controls {
+            display: none;
+            width: 100%;
+            max-width: 600px;
+            margin-top: 16px;
+            justify-content: space-between;
+            align-items: center;
+            touch-action: none;
+        }
+
+        @media (pointer: coarse) {
+            .mobile-controls {
+                display: flex;
+            }
+        }
+
+        .dpad-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 44px);
+            grid-template-rows: repeat(3, 44px);
+            gap: 4px;
+        }
+
+        .btn-touch {
+            background: #222638;
+            border: 2px solid #3a405a;
+            color: #fff;
+            border-radius: 8px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            touch-action: none;
+        }
+
+        .btn-touch:active, .btn-touch.active {
+            background: var(--accent);
+            border-color: #ff5252;
+        }
+
+        .action-btns {
+            display: flex;
+            gap: 16px;
+        }
+
+        .btn-round {
+            width: 54px;
+            height: 54px;
+            border-radius: 50%;
+            background: #b71c1c;
+            border: 2px solid #e53935;
+            color: #fff;
+            font-weight: 900;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            touch-action: none;
+        }
+
+        .btn-round:active, .btn-round.active {
+            background: #e53935;
+            transform: scale(0.95);
+        }
+
+        .system-touch {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .btn-pill {
+            background: #2b2e40;
+            border: 1px solid #444a66;
+            color: #bbb;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 6px 14px;
+            border-radius: 12px;
+            letter-spacing: 1px;
+            touch-action: none;
+        }
+
+        .btn-pill:active, .btn-pill.active {
+            background: #555c80;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <div class="nes-badge">NES CLOUD</div>
+            <h1 id="gameTitle">Cargando juego...</h1>
+        </div>
+        <div class="status-indicators">
+            <div class="badge">
+                <span class="dot" id="serverDot"></span>
+                <span id="serverStatus">Desconectado</span>
+            </div>
+            <div class="badge">
+                <span id="fpsDisplay">-- FPS</span>
+            </div>
+            <div class="badge">
+                <span id="pingDisplay">-- ms</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- TV Screen -->
+    <div class="tv-wrapper">
+        <div class="canvas-container" id="screenContainer">
+            <canvas id="nesCanvas" width="256" height="240"></canvas>
+            <div class="crt-overlay" id="crtOverlay"></div>
+
+            <div class="overlay-message" id="overlayMessage">
+                <h2 style="font-size: 24px; color: #fff;">🎮 Emulador NES en la Nube</h2>
+                <p style="color: var(--text-dim); max-width: 400px; font-size: 14px;">
+                    Juego incrustado listo en el servidor. Conecta tu control Xbox por Bluetooth o juega con teclado.
+                </p>
+                <button class="btn-start" id="btnConnect">INICIAR PARTIDA</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Mobile Virtual Gamepad -->
+    <div class="mobile-controls">
+        <div class="dpad-grid">
+            <div></div>
+            <button class="btn-touch" data-btn="up">▲</button>
+            <div></div>
+            <button class="btn-touch" data-btn="left">◀</button>
+            <div></div>
+            <button class="btn-touch" data-btn="right">▶</button>
+            <div></div>
+            <button class="btn-touch" data-btn="down">▼</button>
+            <div></div>
+        </div>
+        <div class="action-btns">
+            <button class="btn-round" data-btn="b">B</button>
+            <button class="btn-round" data-btn="a">A</button>
+        </div>
+    </div>
+    <div class="system-touch">
+        <button class="btn-pill" data-btn="select">SELECT</button>
+        <button class="btn-pill" data-btn="start">START</button>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="dashboard">
+        <!-- Controles -->
+        <div class="card">
+            <div class="card-title">
+                <span>🎮 Mapeo de Controles</span>
+                <span style="font-size: 11px; color: var(--accent);">Plug & Play</span>
+            </div>
+            <div class="key-map">
+                <div class="key-row"><span>Botón A</span> <span class="key-badge">Xbox A / Z</span></div>
+                <div class="key-row"><span>Botón B</span> <span class="key-badge">Xbox B / X</span></div>
+                <div class="key-row"><span>Turbo A</span> <span class="key-badge">Xbox X / C</span></div>
+                <div class="key-row"><span>Turbo B</span> <span class="key-badge">Xbox Y / V</span></div>
+                <div class="key-row"><span>Start</span> <span class="key-badge">Start / Enter</span></div>
+                <div class="key-row"><span>Select</span> <span class="key-badge">Back / Shift</span></div>
+                <div class="key-row"><span>Direcciones</span> <span class="key-badge">D-Pad / WASD</span></div>
+                <div class="key-row"><span>Guardar</span> <span class="key-badge">LB / F5</span></div>
+            </div>
+        </div>
+
+        <!-- Dispositivos y Ajustes -->
+        <div class="card controller-status">
+            <div class="card-title">Estado del Control</div>
+            <div class="gamepad-visual">
+                <span style="font-size: 24px;" id="gamepadIcon">🎮</span>
+                <div>
+                    <div style="font-weight: 700; font-size: 13px;" id="gamepadName">Buscando control Bluetooth...</div>
+                    <div style="font-size: 11px; color: var(--text-dim);" id="gamepadSub">Presiona cualquier botón en tu control Xbox</div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <button class="btn-action" id="btnFullscreen">Pantalla Completa</button>
+                <button class="btn-action" id="btnToggleCRT">Efecto CRT: ON</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ─── Bitmask Buttons NES ───
+        const BTN_A      = 0x80;
+        const BTN_B      = 0x40;
+        const BTN_SELECT = 0x20;
+        const BTN_START  = 0x10;
+        const BTN_UP     = 0x08;
+        const BTN_DOWN   = 0x04;
+        const BTN_LEFT   = 0x02;
+        const BTN_RIGHT  = 0x01;
+
+        // Estado actual de botones
+        let inputMask = 0x00;
+        let turboMask = 0x00;
+        let turboFrame = 0;
+
+        // Teclas de teclado presionadas
+        const keysPressed = new Set();
+
+        // Canvas y contexto
+        const canvas = document.getElementById("nesCanvas");
+        const ctx = canvas.getContext("2d", { alpha: false });
+
+        // Elementos DOM
+        const serverDot = document.getElementById("serverDot");
+        const serverStatus = document.getElementById("serverStatus");
+        const fpsDisplay = document.getElementById("fpsDisplay");
+        const pingDisplay = document.getElementById("pingDisplay");
+        const overlayMessage = document.getElementById("overlayMessage");
+        const btnConnect = document.getElementById("btnConnect");
+        const gamepadName = document.getElementById("gamepadName");
+        const gamepadSub = document.getElementById("gamepadSub");
+        const gameTitle = document.getElementById("gameTitle");
+        const crtOverlay = document.getElementById("crtOverlay");
+        const btnToggleCRT = document.getElementById("btnToggleCRT");
+        const btnFullscreen = document.getElementById("btnFullscreen");
+
+        let ws = null;
+        let frameCount = 0;
+        let lastFpsTime = performance.now();
+        let pingStartTime = 0;
+
+        // ─── WebSocket Streaming ───
+        function connectWebSocket() {
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            serverStatus.textContent = "Conectando...";
+            serverDot.className = "dot";
+
+            ws = new WebSocket(wsUrl);
+            ws.binaryType = "arraybuffer";
+
+            ws.onopen = () => {
+                serverStatus.textContent = "En línea (Nube)";
+                serverDot.className = "dot connected";
+                overlayMessage.style.display = "none";
+                sendPing();
+            };
+
+            ws.onmessage = async (event) => {
+                if (typeof event.data === "string") {
+                    try {
+                        const meta = JSON.parse(event.data);
+                        if (meta.type === "pong") {
+                            const ping = Math.round(performance.now() - pingStartTime);
+                            pingDisplay.textContent = `${ping} ms`;
+                            setTimeout(sendPing, 1000);
+                        } else if (meta.type === "info") {
+                            if (meta.title) gameTitle.textContent = meta.title;
+                        }
+                    } catch (e) {}
+                    return;
+                }
+
+                // Frame binario (JPEG)
+                const blob = new Blob([event.data], { type: "image/jpeg" });
+                try {
+                    const bitmap = await createImageBitmap(blob);
+                    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                    bitmap.close();
+                } catch (e) {
+                    // Fallback
+                    const img = new Image();
+                    img.onload = () => {
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        URL.revokeObjectURL(img.src);
+                    };
+                    img.src = URL.createObjectURL(blob);
+                }
+
+                // Calcular FPS
+                frameCount++;
+                const now = performance.now();
+                if (now - lastFpsTime >= 1000) {
+                    fpsDisplay.textContent = `${frameCount} FPS`;
+                    frameCount = 0;
+                    lastFpsTime = now;
+                }
+            };
+
+            ws.onclose = () => {
+                serverStatus.textContent = "Desconectado";
+                serverDot.className = "dot";
+                overlayMessage.style.display = "flex";
+                fpsDisplay.textContent = "-- FPS";
+                pingDisplay.textContent = "-- ms";
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = () => {
+                ws.close();
+            };
+        }
+
+        function sendPing() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                pingStartTime = performance.now();
+                ws.send(JSON.stringify({ type: "ping" }));
+            }
+        }
+
+        btnConnect.addEventListener("click", () => {
+            connectWebSocket();
+        });
+
+        // ─── Gamepad API (Xbox Bluetooth / USB) ───
+        let activeGamepadIndex = null;
+
+        window.addEventListener("gamepadconnected", (e) => {
+            activeGamepadIndex = e.gamepad.index;
+            gamepadName.textContent = e.gamepad.id.split("(")[0].trim() || "Control Conectado";
+            gamepadSub.textContent = "🎮 Conexión Bluetooth / USB activa";
+        });
+
+        window.addEventListener("gamepaddisconnected", (e) => {
+            if (activeGamepadIndex === e.gamepad.index) {
+                activeGamepadIndex = null;
+                gamepadName.textContent = "Control desconectado";
+                gamepadSub.textContent = "Usa el teclado o reconecta tu control";
+            }
+        });
+
+        function pollGamepad() {
+            let mask = 0;
+            let turboA = false;
+            let turboB = false;
+
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            let pad = null;
+            if (activeGamepadIndex !== null && gamepads[activeGamepadIndex]) {
+                pad = gamepads[activeGamepadIndex];
+            } else {
+                for (let gp of gamepads) {
+                    if (gp && gp.connected) { pad = gp; break; }
+                }
+            }
+
+            if (pad) {
+                // Botones estándar de Gamepad (Xbox standard layout)
+                // 0: A, 1: B, 2: X (Turbo A), 3: Y (Turbo B)
+                if (pad.buttons[0] && pad.buttons[0].pressed) mask |= BTN_A;
+                if (pad.buttons[1] && pad.buttons[1].pressed) mask |= BTN_B;
+                if (pad.buttons[2] && pad.buttons[2].pressed) turboA = true;
+                if (pad.buttons[3] && pad.buttons[3].pressed) turboB = true;
+
+                // Select / Start
+                if (pad.buttons[8] && pad.buttons[8].pressed) mask |= BTN_SELECT;
+                if (pad.buttons[9] && pad.buttons[9].pressed) mask |= BTN_START;
+
+                // D-Pad buttons
+                if (pad.buttons[12] && pad.buttons[12].pressed) mask |= BTN_UP;
+                if (pad.buttons[13] && pad.buttons[13].pressed) mask |= BTN_DOWN;
+                if (pad.buttons[14] && pad.buttons[14].pressed) mask |= BTN_LEFT;
+                if (pad.buttons[15] && pad.buttons[15].pressed) mask |= BTN_RIGHT;
+
+                // D-Pad con Stick Izquierdo (Axes 0 y 1)
+                if (pad.axes && pad.axes.length >= 2) {
+                    const ax = pad.axes[0];
+                    const ay = pad.axes[1];
+                    const deadZone = 0.45;
+                    if (ax < -deadZone) mask |= BTN_LEFT;
+                    if (ax > deadZone)  mask |= BTN_RIGHT;
+                    if (ay < -deadZone) mask |= BTN_UP;
+                    if (ay > deadZone)  mask |= BTN_DOWN;
+                }
+            }
+
+            return { mask, turboA, turboB };
+        }
+
+        // ─── Keyboard Input ───
+        window.addEventListener("keydown", (e) => {
+            // Evitar scroll con flechas y espacio
+            if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) {
+                e.preventDefault();
+            }
+            keysPressed.add(e.code);
+        });
+
+        window.addEventListener("keyup", (e) => {
+            keysPressed.delete(e.code);
+        });
+
+        function pollKeyboard() {
+            let mask = 0;
+            let turboA = false;
+            let turboB = false;
+
+            // NES A: Z, K o Barra espaciadora
+            if (keysPressed.has("KeyZ") || keysPressed.has("KeyK") || keysPressed.has("Space")) mask |= BTN_A;
+            // NES B: X o J
+            if (keysPressed.has("KeyX") || keysPressed.has("KeyJ")) mask |= BTN_B;
+            // Turbo A: C, Turbo B: V
+            if (keysPressed.has("KeyC")) turboA = true;
+            if (keysPressed.has("KeyV")) turboB = true;
+
+            // Start: Enter
+            if (keysPressed.has("Enter") || keysPressed.has("NumpadEnter")) mask |= BTN_START;
+            // Select: Shift
+            if (keysPressed.has("ShiftRight") || keysPressed.has("ShiftLeft")) mask |= BTN_SELECT;
+
+            // D-Pad: Flechas o WASD
+            if (keysPressed.has("ArrowUp")    || keysPressed.has("KeyW")) mask |= BTN_UP;
+            if (keysPressed.has("ArrowDown")  || keysPressed.has("KeyS")) mask |= BTN_DOWN;
+            if (keysPressed.has("ArrowLeft")  || keysPressed.has("KeyA")) mask |= BTN_LEFT;
+            if (keysPressed.has("ArrowRight") || keysPressed.has("KeyD")) mask |= BTN_RIGHT;
+
+            return { mask, turboA, turboB };
+        }
+
+        // ─── Touch Controls (Mobile) ───
+        let touchMask = 0;
+        document.querySelectorAll("[data-btn]").forEach(el => {
+            const btnName = el.getAttribute("data-btn");
+            const getFlag = (name) => {
+                switch(name) {
+                    case "a": return BTN_A;
+                    case "b": return BTN_B;
+                    case "start": return BTN_START;
+                    case "select": return BTN_SELECT;
+                    case "up": return BTN_UP;
+                    case "down": return BTN_DOWN;
+                    case "left": return BTN_LEFT;
+                    case "right": return BTN_RIGHT;
+                    default: return 0;
+                }
+            };
+            const flag = getFlag(btnName);
+
+            const press = (ev) => {
+                ev.preventDefault();
+                touchMask |= flag;
+                el.classList.add("active");
+            };
+            const release = (ev) => {
+                ev.preventDefault();
+                touchMask &= ~flag;
+                el.classList.remove("active");
+            };
+
+            el.addEventListener("pointerdown", press);
+            el.addEventListener("pointerup", release);
+            el.addEventListener("pointercancel", release);
+            el.addEventListener("pointerleave", release);
+        });
+
+        // ─── Input Sync Loop (60 FPS) ───
+        let lastSentMask = -1;
+
+        function inputLoop() {
+            turboFrame = (turboFrame + 1) % 4;
+            const turboPulse = turboFrame < 2;
+
+            const padState = pollGamepad();
+            const keyState = pollKeyboard();
+
+            let finalMask = padState.mask | keyState.mask | touchMask;
+
+            // Procesar turbo
+            if ((padState.turboA || keyState.turboA) && turboPulse) finalMask |= BTN_A;
+            if ((padState.turboB || keyState.turboB) && turboPulse) finalMask |= BTN_B;
+
+            // Evitar enviar simultáneamente Izquierda+Derecha o Arriba+Abajo (inválido en NES real)
+            if ((finalMask & BTN_LEFT) && (finalMask & BTN_RIGHT)) finalMask &= ~BTN_RIGHT;
+            if ((finalMask & BTN_UP) && (finalMask & BTN_DOWN)) finalMask &= ~BTN_DOWN;
+
+            // Enviar máscara por WebSocket si hay conexión abierta
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                // Enviamos paquete binario de 1 byte con la máscara
+                const packet = new Uint8Array([finalMask]);
+                ws.send(packet.buffer);
+            }
+
+            requestAnimationFrame(inputLoop);
+        }
+
+        requestAnimationFrame(inputLoop);
+
+        // ─── UI Actions ───
+        let crtEnabled = true;
+        btnToggleCRT.addEventListener("click", () => {
+            crtEnabled = !crtEnabled;
+            crtOverlay.style.display = crtEnabled ? "block" : "none";
+            btnToggleCRT.textContent = `Efecto CRT: ${crtEnabled ? 'ON' : 'OFF'}`;
+        });
+
+        btnFullscreen.addEventListener("click", () => {
+            const container = document.getElementById("screenContainer");
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => alert(err.message));
+            } else {
+                document.exitFullscreen();
+            }
+        });
+    </script>
+</body>
+</html>
