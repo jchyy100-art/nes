@@ -11,5 +11,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copiar el código de la aplicación
 COPY . .
 
-# Iniciar servidor FastAPI con Uvicorn en el puerto dinámico $PORT
-CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Iniciar servidor directamente con Python (maneja $PORT de forma nativa)
+CMD ["python", "server.py"]

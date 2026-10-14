@@ -203,7 +203,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", "8080").strip())
     print(f"\n=======================================================")
     print(f"  NES Cloud Emulator — Servidor en ejecución")
     print(f"  Abre en tu navegador: http://localhost:{port}")
