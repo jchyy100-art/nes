@@ -27,9 +27,12 @@ Registro de botones del NES (1 byte, leído en serie):
     Bit 2: Down
     Bit 1: Left
     Bit 0: Right
-"""
-
-import pygame
+try:
+    import pygame
+    PYGAME_AVAILABLE = True
+except Exception:
+    pygame = None
+    PYGAME_AVAILABLE = False
 
 
 class Controller:
@@ -96,6 +99,8 @@ class Controller:
 
     def _init_joystick(self):
         """Detecta e inicializa el primer joystick disponible de forma segura."""
+        if not PYGAME_AVAILABLE or not pygame:
+            return
         try:
             if pygame.joystick.get_init() and pygame.joystick.get_count() > 0:
                 idx = min(self.player - 1, pygame.joystick.get_count() - 1)
@@ -110,6 +115,8 @@ class Controller:
 
     def reconnect(self):
         """Intenta reconectar el control (útil si se desconectó)."""
+        if not PYGAME_AVAILABLE or not pygame:
+            return
         try:
             pygame.joystick.quit()
             pygame.joystick.init()
@@ -214,6 +221,8 @@ class Controller:
 
     def _read_keyboard(self) -> int:
         """Lee las teclas del teclado (fallback y debug)."""
+        if not PYGAME_AVAILABLE or not pygame:
+            return 0
         state  = 0x00
         try:
             keys = pygame.key.get_pressed()

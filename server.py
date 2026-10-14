@@ -57,6 +57,12 @@ async def get_index():
     return FileResponse(INDEX_PATH)
 
 
+@app.get("/health")
+async def health_check():
+    """Ruta de comprobación de salud para Railway / Render."""
+    return {"status": "ok", "game": DEFAULT_ROM_NAME}
+
+
 # Servir archivos estáticos adicionales si los hubiera
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
@@ -203,4 +209,4 @@ if __name__ == "__main__":
     print(f"  Abre en tu navegador: http://localhost:{port}")
     print(f"  Juego incrustado: {DEFAULT_ROM_NAME}")
     print(f"=======================================================\n")
-    uvicorn.run("server:app", host="0.0.0.0", port=port, log_level="warning")
+    uvicorn.run("server:app", host="0.0.0.0", port=port, log_level="info")

@@ -1,12 +1,6 @@
-# requirements.txt — Dependencias del emulador NES (Local + Servidor Web en la Nube)
-#
-# Para ejecutar en local:
-#     python main.py juego.nes
-#
-# Para ejecutar en servidor web / navegador:
-#     python server.py
+# requirements.txt — Dependencias para despliegue Web / Cloud (Railway, Render)
+# Nota: La version web no requiere librerias GUI como pygame.
 
-pygame>=2.5.0
 numpy>=1.24.0
 pillow>=10.0.0
 fastapi>=0.100.0
