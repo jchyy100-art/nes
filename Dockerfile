@@ -4,12 +4,12 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Instalar dependencias limpias de Python sin paquetes GUI
+# Instalar dependencias limpias de Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copiar el código de la aplicación
 COPY . .
 
-# Iniciar servidor (lee automáticamente la variable $PORT que inyecta Railway o Render)
-CMD ["python", "server.py"]
+# Iniciar servidor FastAPI con Uvicorn en el puerto dinámico $PORT
+CMD ["sh", "-c", "uvicorn server:app --host 0.0.0.0 --port ${PORT:-8000}"]

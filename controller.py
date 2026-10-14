@@ -27,6 +27,8 @@ Registro de botones del NES (1 byte, leído en serie):
     Bit 2: Down
     Bit 1: Left
     Bit 0: Right
+"""
+
 try:
     import pygame
     PYGAME_AVAILABLE = True
