@@ -87,6 +87,11 @@ async def get_index():
     return FileResponse(INDEX_PATH)
 
 
+@app.get("/jsnes.min.js")
+async def get_jsnes_file():
+    return FileResponse(os.path.join(WEB_DIR, "jsnes.min.js"), media_type="application/javascript")
+
+
 @app.get("/health")
 async def health_check():
     """Ruta de comprobación de salud para Railway / Render."""
@@ -96,9 +101,11 @@ async def health_check():
 @app.get("/api/download_current_rom")
 async def download_current_rom():
     from fastapi.responses import Response
-    if CURRENT_ROM_BYTES:
-        return Response(content=bytes(CURRENT_ROM_BYTES), media_type="application/octet-stream")
+    rom = CURRENT_ROM_BYTES or DEFAULT_ROM_BYTES
+    if rom:
+        return Response(content=bytes(rom), media_type="application/octet-stream")
     return {"error": "No ROM in memory"}
+
 
 
 @app.get("/api/debug_run")

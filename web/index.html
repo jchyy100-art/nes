@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NES Cloud — Emulador en el Navegador</title>
+    <script src="/static/jsnes.min.js"></script>
     <style>
+
         :root {
             --bg-color: #0f1118;
             --panel-bg: #191b26;
@@ -421,11 +423,16 @@
             <h1 id="gameTitle">Cargando juego...</h1>
         </div>
         <div class="status-indicators">
+            <div class="engine-switch" style="display: flex; gap: 4px; background: var(--panel-bg); padding: 3px; border-radius: 8px; border: 1px solid var(--card-border);">
+                <button id="btnModeWeb" style="padding: 5px 12px; border-radius: 6px; border: none; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; cursor: pointer; transition: 0.2s;">⚡ 60 FPS (Web)</button>
+                <button id="btnModeCloud" style="padding: 5px 12px; border-radius: 6px; border: none; background: transparent; color: var(--text-dim); font-size: 11px; font-weight: 700; cursor: pointer; transition: 0.2s;">☁️ Nube (Python)</button>
+            </div>
             <button class="btn-rom" id="btnHeaderRom"><span>📂</span> Cargar ROM (.nes)</button>
             <div class="badge">
-                <span class="dot" id="serverDot"></span>
-                <span id="serverStatus">Desconectado</span>
+                <span class="dot connected" id="serverDot"></span>
+                <span id="serverStatus">Modo 60 FPS Listo</span>
             </div>
+
             <div class="badge">
                 <span id="fpsDisplay">-- FPS</span>
             </div>
@@ -526,7 +533,7 @@
     <input type="file" id="romFileInput" accept=".nes" style="display: none;">
 
     <script>
-        // ─── Bitmask Buttons NES ───
+        // ─── Constantes de Botones NES ───
         const BTN_A      = 0x80;
         const BTN_B      = 0x40;
         const BTN_SELECT = 0x20;
@@ -536,17 +543,17 @@
         const BTN_LEFT   = 0x02;
         const BTN_RIGHT  = 0x01;
 
-        // Estado actual de botones
+        // Estado de botones y turbo
         let inputMask = 0x00;
-        let turboMask = 0x00;
         let turboFrame = 0;
-
-        // Teclas de teclado presionadas
+        let touchMask = 0x00;
         const keysPressed = new Set();
 
         // Canvas y contexto
         const canvas = document.getElementById("nesCanvas");
         const ctx = canvas.getContext("2d", { alpha: false });
+        const webImageData = ctx.createImageData(256, 240);
+        const webBuf32 = new Uint32Array(webImageData.data.buffer);
 
         // Elementos DOM
         const serverDot = document.getElementById("serverDot");
@@ -561,13 +568,193 @@
         const crtOverlay = document.getElementById("crtOverlay");
         const btnToggleCRT = document.getElementById("btnToggleCRT");
         const btnFullscreen = document.getElementById("btnFullscreen");
+        const btnModeWeb = document.getElementById("btnModeWeb");
+        const btnModeCloud = document.getElementById("btnModeCloud");
 
+        // Motores de emulación: "web" (60 FPS client) o "cloud" (Python WebSocket)
+        let currentEngine = "web";
+        let webNes = null;
+        let webRunning = false;
+        let webAnimId = null;
+        let currentRomData = null; // Binary string
+        let currentRomName = "Super Mario Bros. 3 (USA) (Rev 1).nes";
+
+        // WebSocket Streaming (Modo Nube)
         let ws = null;
         let frameCount = 0;
         let lastFpsTime = performance.now();
         let pingStartTime = 0;
 
-        // ─── WebSocket Streaming ───
+        // ─── Sistema de Audio Web (60 FPS Web Engine) ───
+        let audioCtx = null;
+        let scriptNode = null;
+        const AUDIO_BUF_SIZE = 8192;
+        const audioBufL = new Float32Array(AUDIO_BUF_SIZE);
+        const audioBufR = new Float32Array(AUDIO_BUF_SIZE);
+        let audioReadIdx = 0;
+        let audioWriteIdx = 0;
+
+        function initAudio() {
+            if (audioCtx) {
+                if (audioCtx.state === "suspended") audioCtx.resume();
+                return;
+            }
+            const AudioContext = window.AudioContext || window.webkitAudioContext;
+            if (!AudioContext) return;
+            try {
+                audioCtx = new AudioContext({ sampleRate: 44100 });
+                scriptNode = audioCtx.createScriptProcessor(2048, 0, 2);
+                scriptNode.onaudioprocess = (e) => {
+                    const outL = e.outputBuffer.getChannelData(0);
+                    const outR = e.outputBuffer.getChannelData(1);
+                    for (let i = 0; i < outL.length; i++) {
+                        if (audioReadIdx !== audioWriteIdx) {
+                            outL[i] = audioBufL[audioReadIdx];
+                            outR[i] = audioBufR[audioReadIdx];
+                            audioReadIdx = (audioReadIdx + 1) % AUDIO_BUF_SIZE;
+                        } else {
+                            outL[i] = 0;
+                            outR[i] = 0;
+                        }
+                    }
+                };
+                scriptNode.connect(audioCtx.destination);
+            } catch (e) {
+                console.warn("AudioContext init error:", e);
+            }
+        }
+
+        function handleAudioSample(left, right) {
+            audioBufL[audioWriteIdx] = left;
+            audioBufR[audioWriteIdx] = right;
+            audioWriteIdx = (audioWriteIdx + 1) % AUDIO_BUF_SIZE;
+        }
+
+        // ─── Inicializar Motor jsnes (Web 60 FPS) ───
+        function initWebNes() {
+            if (webNes || typeof jsnes === "undefined") return;
+            webNes = new jsnes.NES({
+                onFrame: (buffer) => {
+                    for (let i = 0; i < 61440; i++) {
+                        webBuf32[i] = 0xFF000000 | buffer[i];
+                    }
+                    ctx.putImageData(webImageData, 0, 0);
+                },
+                onAudioSample: handleAudioSample
+            });
+        }
+
+        // ─── Loop de Animación Web (60 FPS) ───
+        function webLoop(timestamp) {
+            if (!webRunning || !webNes) return;
+
+            updateWebControls();
+
+            try {
+                webNes.frame();
+            } catch (err) {
+                console.error("jsnes frame error:", err);
+            }
+
+            frameCount++;
+            if (timestamp - lastFpsTime >= 1000) {
+                fpsDisplay.textContent = `${frameCount} FPS`;
+                frameCount = 0;
+                lastFpsTime = timestamp;
+            }
+
+            webAnimId = requestAnimationFrame(webLoop);
+        }
+
+        function updateWebControls() {
+            if (!webNes) return;
+
+            turboFrame = (turboFrame + 1) % 4;
+            const turboPulse = turboFrame < 2;
+
+            const padState = pollGamepad();
+            const keyState = pollKeyboard();
+            let finalMask = padState.mask | keyState.mask | touchMask;
+
+            if ((padState.turboA || keyState.turboA) && turboPulse) finalMask |= BTN_A;
+            if ((padState.turboB || keyState.turboB) && turboPulse) finalMask |= BTN_B;
+
+            if ((finalMask & BTN_LEFT) && (finalMask & BTN_RIGHT)) finalMask &= ~BTN_RIGHT;
+            if ((finalMask & BTN_UP) && (finalMask & BTN_DOWN)) finalMask &= ~BTN_DOWN;
+
+            const map = [
+                [BTN_A, jsnes.Controller.BUTTON_A],
+                [BTN_B, jsnes.Controller.BUTTON_B],
+                [BTN_SELECT, jsnes.Controller.BUTTON_SELECT],
+                [BTN_START, jsnes.Controller.BUTTON_START],
+                [BTN_UP, jsnes.Controller.BUTTON_UP],
+                [BTN_DOWN, jsnes.Controller.BUTTON_DOWN],
+                [BTN_LEFT, jsnes.Controller.BUTTON_LEFT],
+                [BTN_RIGHT, jsnes.Controller.BUTTON_RIGHT],
+            ];
+
+            for (let [maskBit, nesBtn] of map) {
+                if (finalMask & maskBit) {
+                    webNes.buttonDown(1, nesBtn);
+                } else {
+                    webNes.buttonUp(1, nesBtn);
+                }
+            }
+        }
+
+        // ─── Arrancar Juego en Modo Web 60 FPS ───
+        async function startWebGame(romBinaryData) {
+            initAudio();
+            initWebNes();
+
+            if (romBinaryData) {
+                currentRomData = romBinaryData;
+            } else if (!currentRomData) {
+                btnConnect.textContent = "DESCARGANDO ROM...";
+                serverStatus.textContent = "Descargando ROM...";
+                try {
+                    const resp = await fetch("/api/download_current_rom");
+                    if (resp.ok) {
+                        const arrayBuf = await resp.arrayBuffer();
+                        let binary = "";
+                        const bytes = new Uint8Array(arrayBuf);
+                        for (let i = 0; i < bytes.byteLength; i++) {
+                            binary += String.fromCharCode(bytes[i]);
+                        }
+                        currentRomData = binary;
+                    } else {
+                        throw new Error("No se pudo obtener ROM del servidor");
+                    }
+                } catch (err) {
+                    alert("Carga tu ROM con el botón '📂 Cargar ROM (.nes)' para jugar a 60 FPS.");
+                    btnConnect.textContent = "INICIAR PARTIDA";
+                    return;
+                }
+            }
+
+            try {
+                webNes.loadROM(currentRomData);
+                webRunning = true;
+                overlayMessage.style.display = "none";
+                serverStatus.textContent = "En línea (60 FPS)";
+                serverDot.className = "dot connected";
+                pingDisplay.textContent = "0 ms (Local)";
+                gameTitle.textContent = currentRomName;
+                btnConnect.textContent = "REINICIAR PARTIDA";
+                btnConnect.disabled = false;
+
+                if (webAnimId) cancelAnimationFrame(webAnimId);
+                lastFpsTime = performance.now();
+                frameCount = 0;
+                webAnimId = requestAnimationFrame(webLoop);
+            } catch (e) {
+                alert("Error cargando ROM en jsnes: " + e.message);
+                btnConnect.textContent = "INICIAR PARTIDA";
+                btnConnect.disabled = false;
+            }
+        }
+
+        // ─── WebSocket Streaming (Modo Servidor Nube) ───
         function connectWebSocket() {
             if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
                 return;
@@ -578,7 +765,7 @@
 
             btnConnect.textContent = "CONECTANDO...";
             btnConnect.disabled = true;
-            serverStatus.textContent = "Conectando...";
+            serverStatus.textContent = "Conectando a Nube...";
             serverDot.className = "dot";
 
             try {
@@ -592,7 +779,7 @@
             }
 
             ws.onopen = () => {
-                serverStatus.textContent = "En línea (Nube)";
+                serverStatus.textContent = "En línea (Nube Python)";
                 serverDot.className = "dot connected";
                 overlayMessage.style.display = "none";
                 btnConnect.textContent = "INICIAR PARTIDA";
@@ -610,14 +797,13 @@
                             setTimeout(sendPing, 1000);
                         } else if (meta.type === "info") {
                             if (meta.title) gameTitle.textContent = meta.title;
-                        } else if (meta.type === "error") {
-                            alert("Aviso del emulador: " + meta.message);
                         }
                     } catch (e) {}
                     return;
                 }
 
-                // Frame binario (JPEG)
+                if (currentEngine !== "cloud") return;
+
                 const blob = new Blob([event.data], { type: "image/jpeg" });
                 try {
                     const bitmap = await createImageBitmap(blob);
@@ -632,7 +818,6 @@
                     img.src = URL.createObjectURL(blob);
                 }
 
-                // Calcular FPS
                 frameCount++;
                 const now = performance.now();
                 if (now - lastFpsTime >= 1000) {
@@ -643,17 +828,15 @@
             };
 
             ws.onclose = () => {
-                serverStatus.textContent = "Desconectado";
-                serverDot.className = "dot";
-                overlayMessage.style.display = "flex";
-                btnConnect.textContent = "RECONECTAR PARTIDA";
-                btnConnect.disabled = false;
-                fpsDisplay.textContent = "-- FPS";
-                pingDisplay.textContent = "-- ms";
-            };
-
-            ws.onerror = (err) => {
-                console.error("WebSocket error:", err);
+                if (currentEngine === "cloud") {
+                    serverStatus.textContent = "Desconectado";
+                    serverDot.className = "dot";
+                    overlayMessage.style.display = "flex";
+                    btnConnect.textContent = "RECONECTAR NUBE";
+                    btnConnect.disabled = false;
+                    fpsDisplay.textContent = "-- FPS";
+                    pingDisplay.textContent = "-- ms";
+                }
             };
         }
 
@@ -664,8 +847,38 @@
             }
         }
 
+        // ─── Selector de Modo (Web 60 FPS vs Nube Python) ───
+        btnModeWeb.addEventListener("click", () => switchEngine("web"));
+        btnModeCloud.addEventListener("click", () => switchEngine("cloud"));
+
+        function switchEngine(mode) {
+            if (currentEngine === mode) return;
+            currentEngine = mode;
+
+            if (mode === "web") {
+                if (ws) { ws.close(); ws = null; }
+                btnModeWeb.style.background = "var(--accent)";
+                btnModeWeb.style.color = "#fff";
+                btnModeCloud.style.background = "transparent";
+                btnModeCloud.style.color = "var(--text-dim)";
+                startWebGame();
+            } else {
+                webRunning = false;
+                if (webAnimId) cancelAnimationFrame(webAnimId);
+                btnModeCloud.style.background = "var(--accent)";
+                btnModeCloud.style.color = "#fff";
+                btnModeWeb.style.background = "transparent";
+                btnModeWeb.style.color = "var(--text-dim)";
+                connectWebSocket();
+            }
+        }
+
         btnConnect.addEventListener("click", () => {
-            connectWebSocket();
+            if (currentEngine === "web") {
+                startWebGame();
+            } else {
+                connectWebSocket();
+            }
         });
 
         // ─── Gamepad API (Xbox Bluetooth / USB) ───
@@ -701,24 +914,19 @@
             }
 
             if (pad) {
-                // Botones estándar de Gamepad (Xbox standard layout)
-                // 0: A, 1: B, 2: X (Turbo A), 3: Y (Turbo B)
                 if (pad.buttons[0] && pad.buttons[0].pressed) mask |= BTN_A;
                 if (pad.buttons[1] && pad.buttons[1].pressed) mask |= BTN_B;
                 if (pad.buttons[2] && pad.buttons[2].pressed) turboA = true;
                 if (pad.buttons[3] && pad.buttons[3].pressed) turboB = true;
 
-                // Select / Start
                 if (pad.buttons[8] && pad.buttons[8].pressed) mask |= BTN_SELECT;
                 if (pad.buttons[9] && pad.buttons[9].pressed) mask |= BTN_START;
 
-                // D-Pad buttons
                 if (pad.buttons[12] && pad.buttons[12].pressed) mask |= BTN_UP;
                 if (pad.buttons[13] && pad.buttons[13].pressed) mask |= BTN_DOWN;
                 if (pad.buttons[14] && pad.buttons[14].pressed) mask |= BTN_LEFT;
                 if (pad.buttons[15] && pad.buttons[15].pressed) mask |= BTN_RIGHT;
 
-                // D-Pad con Stick Izquierdo (Axes 0 y 1)
                 if (pad.axes && pad.axes.length >= 2) {
                     const ax = pad.axes[0];
                     const ay = pad.axes[1];
@@ -735,7 +943,6 @@
 
         // ─── Keyboard Input ───
         window.addEventListener("keydown", (e) => {
-            // Evitar scroll con flechas y espacio
             if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"].includes(e.code)) {
                 e.preventDefault();
             }
@@ -751,20 +958,14 @@
             let turboA = false;
             let turboB = false;
 
-            // NES A: Z, K o Barra espaciadora
             if (keysPressed.has("KeyZ") || keysPressed.has("KeyK") || keysPressed.has("Space")) mask |= BTN_A;
-            // NES B: X o J
             if (keysPressed.has("KeyX") || keysPressed.has("KeyJ")) mask |= BTN_B;
-            // Turbo A: C, Turbo B: V
             if (keysPressed.has("KeyC")) turboA = true;
             if (keysPressed.has("KeyV")) turboB = true;
 
-            // Start: Enter
             if (keysPressed.has("Enter") || keysPressed.has("NumpadEnter")) mask |= BTN_START;
-            // Select: Shift
             if (keysPressed.has("ShiftRight") || keysPressed.has("ShiftLeft")) mask |= BTN_SELECT;
 
-            // D-Pad: Flechas o WASD
             if (keysPressed.has("ArrowUp")    || keysPressed.has("KeyW")) mask |= BTN_UP;
             if (keysPressed.has("ArrowDown")  || keysPressed.has("KeyS")) mask |= BTN_DOWN;
             if (keysPressed.has("ArrowLeft")  || keysPressed.has("KeyA")) mask |= BTN_LEFT;
@@ -774,7 +975,6 @@
         }
 
         // ─── Touch Controls (Mobile) ───
-        let touchMask = 0;
         document.querySelectorAll("[data-btn]").forEach(el => {
             const btnName = el.getAttribute("data-btn");
             const getFlag = (name) => {
@@ -809,37 +1009,28 @@
             el.addEventListener("pointerleave", release);
         });
 
-        // ─── Input Sync Loop (60 FPS) ───
-        let lastSentMask = -1;
+        // ─── Input Sync Loop para Modo Nube (WebSocket) ───
+        function cloudInputLoop() {
+            if (currentEngine === "cloud" && ws && ws.readyState === WebSocket.OPEN) {
+                turboFrame = (turboFrame + 1) % 4;
+                const turboPulse = turboFrame < 2;
 
-        function inputLoop() {
-            turboFrame = (turboFrame + 1) % 4;
-            const turboPulse = turboFrame < 2;
+                const padState = pollGamepad();
+                const keyState = pollKeyboard();
+                let finalMask = padState.mask | keyState.mask | touchMask;
 
-            const padState = pollGamepad();
-            const keyState = pollKeyboard();
+                if ((padState.turboA || keyState.turboA) && turboPulse) finalMask |= BTN_A;
+                if ((padState.turboB || keyState.turboB) && turboPulse) finalMask |= BTN_B;
 
-            let finalMask = padState.mask | keyState.mask | touchMask;
+                if ((finalMask & BTN_LEFT) && (finalMask & BTN_RIGHT)) finalMask &= ~BTN_RIGHT;
+                if ((finalMask & BTN_UP) && (finalMask & BTN_DOWN)) finalMask &= ~BTN_DOWN;
 
-            // Procesar turbo
-            if ((padState.turboA || keyState.turboA) && turboPulse) finalMask |= BTN_A;
-            if ((padState.turboB || keyState.turboB) && turboPulse) finalMask |= BTN_B;
-
-            // Evitar enviar simultáneamente Izquierda+Derecha o Arriba+Abajo (inválido en NES real)
-            if ((finalMask & BTN_LEFT) && (finalMask & BTN_RIGHT)) finalMask &= ~BTN_RIGHT;
-            if ((finalMask & BTN_UP) && (finalMask & BTN_DOWN)) finalMask &= ~BTN_DOWN;
-
-            // Enviar máscara por WebSocket si hay conexión abierta
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                // Enviamos paquete binario de 1 byte con la máscara
                 const packet = new Uint8Array([finalMask]);
                 ws.send(packet.buffer);
             }
-
-            requestAnimationFrame(inputLoop);
+            requestAnimationFrame(cloudInputLoop);
         }
-
-        requestAnimationFrame(inputLoop);
+        requestAnimationFrame(cloudInputLoop);
 
         // ─── UI Actions ───
         let crtEnabled = true;
@@ -882,39 +1073,46 @@
                 return;
             }
 
+            currentRomName = file.name;
+            gameTitle.textContent = "Cargando " + file.name + "...";
+
             const reader = new FileReader();
             reader.onload = async (ev) => {
-                const base64Data = ev.target.result.split(",")[1];
-                gameTitle.textContent = "Cargando " + file.name + "...";
+                const arrayBuffer = ev.target.result;
+                let binary = "";
+                const bytes = new Uint8Array(arrayBuffer);
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                currentRomData = binary;
 
-                // 1. Guardar la ROM en el servidor en la nube
+                // Subir en segundo plano al servidor para sincronizar
                 try {
-                    await fetch("/api/upload_rom", {
+                    const base64Data = btoa(binary);
+                    fetch("/api/upload_rom", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ name: file.name, data: base64Data })
                     });
-                } catch (err) {
-                    console.warn("Aviso guardando en API:", err);
-                }
+                } catch (e) {}
 
-                // 2. Cambiar cartucho en caliente si el WebSocket está activo
-                if (ws && ws.readyState === WebSocket.OPEN) {
-                    ws.send(JSON.stringify({
-                        type: "load_rom",
-                        name: file.name,
-                        data: base64Data
-                    }));
+                if (currentEngine === "web") {
+                    startWebGame(binary);
                 } else {
-                    connectWebSocket();
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({
+                            type: "load_rom",
+                            name: file.name,
+                            data: btoa(binary)
+                        }));
+                    } else {
+                        connectWebSocket();
+                    }
                 }
-
-                overlayMessage.style.display = "none";
-                gameTitle.textContent = file.name;
             };
-
-            reader.readAsDataURL(file);
+            reader.readAsArrayBuffer(file);
         });
     </script>
+
 </body>
 </html>
