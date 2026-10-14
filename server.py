@@ -19,9 +19,11 @@ import time
 import json
 import base64
 import asyncio
+import concurrent.futures
 from typing import Set, Optional
 from PIL import Image
 import numpy as np
+
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, FileResponse
@@ -60,6 +62,23 @@ app = FastAPI(title="NES Cloud Emulator")
 # Ruta absoluta del directorio web
 WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
 INDEX_PATH = os.path.join(WEB_DIR, "index.html")
+
+# ─── Hilo dedicado para emulación (no bloquea el event loop) ───
+_EMU_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="nes_emu"
+)
+
+
+def _run_frames_sync(bus, n_frames: int) -> np.ndarray:
+    """Corre n_frames de emulación en un hilo. Devuelve copia del framebuffer."""
+    ppu = bus.ppu
+    for _ in range(n_frames):
+        ppu.frame_ready = False
+        while not ppu.frame_ready:
+            bus.clock()
+    return ppu.framebuffer.copy()
+
+
 
 
 @app.get("/")
@@ -230,35 +249,29 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # ─── Tarea de emulación y streaming de video ───
     async def stream_frames():
-        target_fps = 60
-        frame_time = 1.0 / target_fps
         jpeg_quality = 65
-        frame_skip = 2
+        frame_skip = 3   # emula 3 frames internos por cada frame enviado al cliente
+        loop = asyncio.get_event_loop()
 
         try:
             while not stop_event.is_set():
-                start = time.perf_counter()
-
                 current_bus = bus
-                for _ in range(frame_skip):
-                    current_bus.ppu.frame_ready = False
-                    while not current_bus.ppu.frame_ready:
-                        current_bus.clock()
 
-                img = Image.fromarray(current_bus.ppu.framebuffer)
+                # Emulación en hilo dedicado (no bloquea el event loop de WebSocket)
+                framebuffer = await loop.run_in_executor(
+                    _EMU_EXECUTOR, _run_frames_sync, current_bus, frame_skip
+                )
+
+                if stop_event.is_set():
+                    break
+
+                img = Image.fromarray(framebuffer)
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=jpeg_quality, optimize=False)
-                frame_bytes = buf.getvalue()
+                await websocket.send_bytes(buf.getvalue())
 
-                await websocket.send_bytes(frame_bytes)
-
-                elapsed = time.perf_counter() - start
-                sleep_time = (frame_time * frame_skip) - elapsed
-                if sleep_time > 0.001:
-                    await asyncio.sleep(sleep_time)
-                else:
-                    await asyncio.sleep(0.001)
-
+                # Pequeña pausa para ceder control al event loop (input)
+                await asyncio.sleep(0)
 
         except WebSocketDisconnect:
             pass
@@ -266,6 +279,7 @@ async def websocket_endpoint(websocket: WebSocket):
             print(f"[WS] Streaming finalizado: {e}")
         finally:
             stop_event.set()
+
 
     input_task = asyncio.create_task(receive_inputs())
     stream_task = asyncio.create_task(stream_frames())

@@ -1,15 +1,22 @@
-FROM python:3.10-slim
+FROM pypy:3.10-slim
 
 ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Instalar dependencias limpias de Python
+# Dependencias de sistema necesarias para Pillow y numpy
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libjpeg-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar dependencias con pip de PyPy
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código de la aplicación
+# Copiar código de la aplicación
 COPY . .
 
-# Iniciar servidor directamente con Python (maneja $PORT de forma nativa)
-CMD ["python", "server.py"]
+# Iniciar servidor
+CMD ["pypy3", "server.py"]

@@ -52,6 +52,8 @@ NES_PALETTE = [
     (236,174,212),(236,180,176),(228,196,144),(204,210,120),(180,222,120),
     (168,226,144),(152,226,180),(160,214,228),(160,162,160),(0,0,0),(0,0,0),
 ]
+# Versión numpy para asignación rápida al framebuffer
+NES_PALETTE_NP = np.array(NES_PALETTE, dtype=np.uint8)  # shape (64, 3)
 
 
 class PPU:
@@ -252,7 +254,7 @@ class PPU:
 
     def _mirror_addr(self, addr: int) -> int:
         """Devuelve 0 o 1 según el modo de espejo del cartucho."""
-        mode = self.bus.cart.mirror_mode
+        mode = self.bus.cart.mapper.mirror
         if mode == MIRROR_VERTICAL:
             return (addr >> 10) & 1
         elif mode == MIRROR_HORIZONTAL:
@@ -262,6 +264,7 @@ class PPU:
         elif mode == MIRROR_SINGLE_HI:
             return 1
         return 0
+
 
     # ═══════════════════════════════════════════════════════════════════════
     #                        RENDERIZADO
@@ -360,7 +363,20 @@ class PPU:
 
             # ── Ciclos de renderizado de BG (2-257 y 321-338) ──
             if (2 <= cy <= 257) or (321 <= cy <= 337):
-                self._update_shifters()
+                # _update_shifters inlineado:
+                mask = self._mask
+                if mask & 0x08:
+                    self._bg_shifter_pattern_lo = (self._bg_shifter_pattern_lo << 1) & 0xFFFF
+                    self._bg_shifter_pattern_hi = (self._bg_shifter_pattern_hi << 1) & 0xFFFF
+                    self._bg_shifter_attr_lo    = (self._bg_shifter_attr_lo    << 1) & 0xFFFF
+                    self._bg_shifter_attr_hi    = (self._bg_shifter_attr_hi    << 1) & 0xFFFF
+                if (mask & 0x10) and 1 <= cy < 258:
+                    for i in range(self._sprite_count):
+                        if self._sprite_x_counter[i] > 0:
+                            self._sprite_x_counter[i] -= 1
+                        else:
+                            self._sprite_shifter_lo[i] = (self._sprite_shifter_lo[i] << 1) & 0xFF
+                            self._sprite_shifter_hi[i] = (self._sprite_shifter_hi[i] << 1) & 0xFF
 
                 phase = (cy - 1) & 7   # fase dentro del tile (0-7)
 
@@ -396,7 +412,14 @@ class PPU:
                         bg_table + self._bg_next_tile_id * 16 + fine_y + 8)
 
                 elif phase == 7:
-                    self._inc_scroll_x()
+                    # _inc_scroll_x inlineado:
+                    if self._mask & 0x18:
+                        if (self._v & 0x001F) == 31:
+                            self._v &= ~0x001F
+                            self._v ^= 0x0400
+                        else:
+                            self._v += 1
+
 
             # ── Al final de la scanline visible ──
             if cy == 256:
@@ -585,8 +608,12 @@ class PPU:
                         if 1 <= x < 258:
                             self._status |= 0x40
 
-        color = self._get_color(palette, pixel)
-        self._back_buffer[y, x] = color
+        # Calcular dirección de paleta e indexar directamente con numpy
+        pal_addr = (palette << 2) + pixel
+        if (pal_addr & 3) == 0:
+            pal_addr = 0
+        self._back_buffer[y, x] = NES_PALETTE_NP[self.palette[pal_addr] & 0x3F]
+
 
     # ─── DMA (escribir 256 bytes a OAM) ───
 
