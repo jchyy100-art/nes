@@ -74,6 +74,35 @@ async def health_check():
     return {"status": "ok", "game": CURRENT_ROM_NAME or DEFAULT_ROM_NAME}
 
 
+@app.get("/api/download_current_rom")
+async def download_current_rom():
+    from fastapi.responses import Response
+    if CURRENT_ROM_BYTES:
+        return Response(content=bytes(CURRENT_ROM_BYTES), media_type="application/octet-stream")
+    return {"error": "No ROM in memory"}
+
+
+@app.get("/api/debug_run")
+async def debug_run():
+    import traceback
+    try:
+        rom = CURRENT_ROM_BYTES or DEFAULT_ROM_BYTES
+        if not rom:
+            return {"ok": False, "error": "No ROM in memory"}
+        bus = create_emulator_instance(rom)
+        for _ in range(10000):
+            bus.clock()
+        return {
+            "ok": True,
+            "game": CURRENT_ROM_NAME,
+            "mapper": bus.cart.mapper_id,
+            "pc": f"{bus.cpu.PC:04X}",
+            "palette": list(bus.ppu.palette[:16])
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e), "traceback": traceback.format_exc()}
+
+
 @app.post("/api/upload_rom")
 async def upload_rom_api(payload: RomUploadModel):
     """Permite subir una ROM en Base64 desde el navegador para fijarla en el servidor."""
