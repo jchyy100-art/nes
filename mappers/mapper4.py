@@ -165,7 +165,7 @@ class Mapper4:
 
         return False, 0
 
-    def ppu_map_write(self, addr: int, data: int) -> tuple[bool, int]:
+    def ppu_map_write(self, addr: int, *args) -> tuple[bool, int]:
         if 0x0000 <= addr <= 0x1FFF and self.chr_banks == 0:
             return True, addr
         return False, 0
