@@ -101,7 +101,7 @@ class Cartridge:
             # Sin CHR-ROM → el juego usa CHR-RAM (8 KB)
             self.chr_ram = bytearray(8 * 1024)
 
-        print(f"[CART] ROM cargada: {os.path.basename(path)}")
+        print(f"[CART] ROM cargada: {os.path.basename(self.path)}")
         print(f"       Mapper: {self.mapper_id}  "
               f"PRG: {prg_banks}×16KB  "
               f"CHR: {chr_banks}×8KB  "
